@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bugs Bunny Lost in Time</title>
+<style>
+  :root { --bg: #0d0b1a; --fg: #f4f1ff; --muted: #a59fc4; --accent: #ff8a1f; --bar: #2a2545; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #stage { width: 100vw; height: 100vh; height: 100dvh; display: none; }
+  #game { width: 100%; height: 100%; }
+  #intro { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px 16px; text-align: center; }
+  h1 { margin: 0; font-size: clamp(28px, 6vw, 48px); letter-spacing: .5px; }
+  p { margin: 0; color: var(--muted); max-width: 520px; line-height: 1.5; }
+  button { font: inherit; font-size: 20px; font-weight: 600; padding: 14px 40px; border: 0; border-radius: 999px; background: var(--accent); color: #1a0f00; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #progress { width: min(420px, 100%); height: 10px; border-radius: 5px; background: var(--bar); overflow: hidden; display: none; }
+  #progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #status { min-height: 1.5em; }
+  .keys { font-size: 14px; }
+  .keys b { color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="intro">
+  <h1>Bugs Bunny: Lost in Time</h1>
+  <p>Versione europea per PlayStation, emulata nel browser.</p>
+  <button id="play">Gioca</button>
+  <div id="progress"><div></div></div>
+  <p id="status"></p>
+  <p class="keys">Al primo avvio vengono scaricati circa 280 MB, poi il gioco resta in cache.<br>
+    Comandi: <b>frecce</b> = movimento, <b>Invio</b> = Start; gli altri tasti sono nel menu <b>Controlli</b> dell’emulatore.<br>
+    Funziona anche con un gamepad e, su smartphone, con i comandi touch.</p>
+</div>
+<div id="stage"><div id="game"></div></div>
+
+<script>
+const EJS_DATA = "https://cdn.emulatorjs.org/4.2.3/data/";
+const CACHE_NAME = "bugsbunny-game-v1";
+
+const playBtn = document.getElementById("play");
+const statusEl = document.getElementById("status");
+const progressEl = document.getElementById("progress");
+const barEl = progressEl.firstElementChild;
+
+function setProgress(done, total) {
+  const pct = total ? Math.floor(done / total * 100) : 0;
+  barEl.style.width = pct + "%";
+  statusEl.textContent = `Download del gioco: ${pct}% (${(done / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB)`;
+}
+
+async function openCache() {
+  try { return await caches.open(CACHE_NAME); } catch (e) { return null; }
+}
+
+// Scarica i pezzi compressi in sequenza (usando la cache se disponibile)
+// e li passa a un unico decompressore gzip.
+async function loadGame() {
+  const manifest = await (await fetch("game/manifest.json", { cache: "no-cache" })).json();
+  const cache = await openCache();
+  let done = 0;
+
+  const compressed = new ReadableStream({
+    async start(controller) {
+      try {
+        for (const part of manifest.parts) {
+          const url = "game/" + part.name;
+          let res = cache ? await cache.match(url) : null;
+          if (!res) {
+            res = await fetch(url);
+            if (!res.ok) throw new Error(`Errore ${res.status} scaricando ${part.name}`);
+            if (cache) {
+              try { await cache.put(url, res.clone()); } catch (e) { /* quota piena: si continua senza cache */ }
+            }
+          }
+          const reader = res.body.getReader();
+          for (;;) {
+            const { value, done: end } = await reader.read();
+            if (end) break;
+            controller.enqueue(value);
+            done += value.length;
+            setProgress(done, manifest.compressedSize);
+          }
+        }
+        controller.close();
+      } catch (e) {
+        controller.error(e);
+      }
+    }
+  });
+
+  const blob = await new Response(compressed.pipeThrough(new DecompressionStream("gzip"))).blob();
+  if (blob.size !== manifest.originalSize) throw new Error("File del gioco incompleto, ricarica la pagina.");
+  return new File([blob], manifest.fileName);
+}
+
+function startEmulator(file) {
+  window.EJS_player = "#game";
+  window.EJS_core = "psx";
+  window.EJS_gameName = "Bugs Bunny - Lost in Time";
+  window.EJS_gameID = 1;
+  window.EJS_gameUrl = file;
+  window.EJS_pathtodata = EJS_DATA;
+  window.EJS_language = "it-IT";
+  window.EJS_startOnLoaded = true;
+  window.EJS_color = "#ff8a1f";
+
+  document.getElementById("intro").style.display = "none";
+  document.getElementById("stage").style.display = "block";
+
+  const s = document.createElement("script");
+  s.src = EJS_DATA + "loader.js";
+  document.body.appendChild(s);
+}
+
+playBtn.addEventListener("click", async () => {
+  if (!("DecompressionStream" in window)) {
+    statusEl.textContent = "Browser non supportato: usa una versione recente di Chrome, Edge, Firefox o Safari.";
+    return;
+  }
+  playBtn.disabled = true;
+  progressEl.style.display = "block";
+  statusEl.textContent = "Preparazione…";
+  try {
+    const file = await loadGame();
+    statusEl.textContent = "Avvio dell'emulatore…";
+    startEmulator(file);
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "Errore: " + e.message;
+    playBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

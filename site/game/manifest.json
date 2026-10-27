@@ -1,0 +1,35 @@
+{
+  "fileName": "Bugs Bunny - Lost in Time (Europe) (En,Fr,De,Es,It,Nl).bin",
+  "originalSize": 625199232,
+  "compressedSize": 291256560,
+  "parts": [
+    {
+      "name": "game.part000",
+      "size": 47185920
+    },
+    {
+      "name": "game.part001",
+      "size": 47185920
+    },
+    {
+      "name": "game.part002",
+      "size": 47185920
+    },
+    {
+      "name": "game.part003",
+      "size": 47185920
+    },
+    {
+      "name": "game.part004",
+      "size": 47185920
+    },
+    {
+      "name": "game.part005",
+      "size": 47185920
+    },
+    {
+      "name": "game.part006",
+      "size": 8141040
+    }
+  ]
+}

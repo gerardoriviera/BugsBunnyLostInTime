@@ -313,6 +313,32 @@ function renderLegend(emu) {
   }
 }
 
+// Assegna da solo al giocatore 1 il controller Xbox appena viene collegato
+// (o, se non c'e' un Xbox, il primo controller libero). Si puo' sempre
+// cambiare dal menu Controlli.
+const XBOX_ID = /xbox|xinput|045e/i;
+
+function setupDefaultGamepad(emu) {
+  const seen = new Set();
+  setInterval(() => {
+    const sel = emu.gamepadSelection;
+    if (!sel || !emu.gamepad) return;
+    for (const p of emu.gamepad.gamepads) {
+      if (!p) continue;
+      const key = p.id + "_" + p.index;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const isXbox = XBOX_ID.test(p.id);
+      const p1 = sel[0] || "";
+      // Un Xbox prende il posto di un controller non Xbox; altrimenti solo se il posto e' libero.
+      if (p1 && (!isXbox || XBOX_ID.test(p1))) continue;
+      for (let i = 0; i < sel.length; i++) if (sel[i] === key) sel[i] = "";
+      sel[0] = key;
+      emu.updateGamepadLabels();
+    }
+  }, 500);
+}
+
 // La levetta sinistra muove come la croce direzionale (il gioco, nella modalita'
 // pad digitale dell'emulatore, legge solo la croce).
 function setupStickToDpad(emu) {
@@ -410,6 +436,7 @@ function setupOverlay(emu) {
   }
   renderLegend(emu);
   setupStickToDpad(emu);
+  setupDefaultGamepad(emu);
   // Aggiorna la legenda quando i tasti vengono cambiati dal menu Controlli.
   const saveSettings = emu.saveSettings.bind(emu);
   emu.saveSettings = (...args) => {

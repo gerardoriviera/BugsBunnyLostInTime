@@ -18,6 +18,12 @@ Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](ht
 
 **Trascinando la cartella:** Netlify → *Add new site* → *Deploy manually* → trascina la cartella `site`.
 
+## Comandi e trucchi
+
+- **Smartphone:** pad touch con croce direzionale, △ □ ○ ✕, L1/R1/L2/R2, Select e Start.
+- **Desktop:** in alto a sinistra una legenda semitrasparente mostra i tasti assegnati; si aggiorna quando li cambi dal menu Controlli. Il pulsante *Comandi* la mostra o la nasconde.
+- **Trucchi:** il pulsante *Trucchi* inserisce in automatico i codici ufficiali del gioco (versione PAL). Vanno usati nella schermata Selezione Epoca (la macchina del tempo). *Sblocca tutti i livelli* rende visitabili tutte le epoche.
+
 ## Note
 
 - Al primo avvio il gioco parte dopo pochi secondi; in basso a destra si vede quanta parte del disco è già caricata. Le visite successive usano la cache del browser.

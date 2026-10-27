@@ -18,6 +18,20 @@
   #status { min-height: 1.5em; }
   .keys { font-size: 14px; }
   .keys b { color: var(--fg); }
+  #overlay { position: absolute; top: 8px; left: 8px; z-index: 5; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100% - 16px); font-size: 12px; }
+  #overlay[hidden], #overlay [hidden] { display: none; }
+  #overlay .tools { display: flex; gap: 6px; }
+  #overlay .tools button { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.45); color: rgba(255,255,255,.75); border: 1px solid rgba(255,255,255,.2); }
+  #legend { pointer-events: none; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,.35); color: rgba(255,255,255,.8); }
+  #legend-list { display: grid; grid-template-columns: repeat(2, auto auto); column-gap: 10px; row-gap: 2px; }
+  #legend-list > div { display: contents; }
+  #legend-list span { text-align: right; opacity: .7; }
+  #legend-list b { font-weight: 600; }
+  #cheat-toast { padding: 6px 10px; border-radius: 6px; background: rgba(255,138,31,.9); color: #1a0f00; font-weight: 600; }
+  #cheats { width: 260px; max-width: 100%; padding: 10px; border-radius: 8px; background: rgba(13,11,26,.92); border: 1px solid rgba(255,255,255,.15); }
+  #cheats p { font-size: 12px; margin-bottom: 8px; }
+  #cheat-list { display: flex; flex-direction: column; gap: 6px; }
+  #cheat-list button { font-size: 14px; padding: 8px 12px; border-radius: 6px; text-align: left; }
   #buffer { position: fixed; right: 12px; bottom: 12px; z-index: 10; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: var(--muted); font-size: 12px; pointer-events: none; transition: opacity 1s; }
 </style>
 </head>
@@ -32,6 +46,19 @@
 </div>
 <div id="stage"><div id="game"></div></div>
 <div id="buffer" hidden></div>
+
+<div id="overlay" hidden>
+  <div class="tools">
+    <button id="legend-toggle" title="Mostra/nascondi legenda comandi">⌨ Comandi</button>
+    <button id="cheats-toggle">★ Trucchi</button>
+  </div>
+  <div id="cheat-toast" hidden></div>
+  <div id="legend" hidden><div id="legend-list"></div></div>
+  <div id="cheats" hidden>
+    <p>Vai nella schermata <b>Selezione Epoca</b> (la macchina del tempo), poi scegli un trucco: il codice viene inserito in automatico.</p>
+    <div id="cheat-list"></div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako_inflate.min.js"></script>
 <script>
@@ -176,6 +203,139 @@ function mountDisc(FS) {
 }
 
 // ---------------------------------------------------------------------------
+// Comandi: indici del RetroPad usati da EmulatorJS per il pad PlayStation.
+// ---------------------------------------------------------------------------
+const PAD = { CROSS: 0, SQUARE: 1, SELECT: 2, START: 3, UP: 4, DOWN: 5, LEFT: 6, RIGHT: 7,
+              CIRCLE: 8, TRIANGLE: 9, L1: 10, R1: 11, L2: 12, R2: 13 };
+
+// Pad touch per smartphone: croce direzionale vera, tasti frontali PlayStation e dorsali.
+const TOUCH_GAMEPAD = [
+  { type: "dpad", id: "dpad", location: "left", left: "50%", top: "50%", joystickInput: false, inputValues: [PAD.UP, PAD.DOWN, PAD.LEFT, PAD.RIGHT] },
+  { type: "button", text: "△", id: "triangle", location: "right", left: 40, top: 0, fontSize: 26, input_value: PAD.TRIANGLE },
+  { type: "button", text: "□", id: "square", location: "right", left: 0, top: 40, fontSize: 26, input_value: PAD.SQUARE },
+  { type: "button", text: "○", id: "circle", location: "right", left: 81, top: 40, fontSize: 26, input_value: PAD.CIRCLE },
+  { type: "button", text: "✕", id: "cross", location: "right", left: 40, top: 80, fontSize: 26, input_value: PAD.CROSS },
+  { type: "button", text: "L2", id: "l2", location: "left", left: 3, top: -100, fontSize: 15, bold: true, block: true, input_value: PAD.L2 },
+  { type: "button", text: "L1", id: "l1", location: "left", left: 60, top: -100, fontSize: 15, bold: true, block: true, input_value: PAD.L1 },
+  { type: "button", text: "R1", id: "r1", location: "right", right: 60, top: -100, fontSize: 15, bold: true, block: true, input_value: PAD.R1 },
+  { type: "button", text: "R2", id: "r2", location: "right", right: 3, top: -100, fontSize: 15, bold: true, block: true, input_value: PAD.R2 },
+  { type: "button", text: "Start", id: "start", location: "center", left: 60, fontSize: 15, block: true, input_value: PAD.START },
+  { type: "button", text: "Select", id: "select", location: "center", left: -5, fontSize: 15, block: true, input_value: PAD.SELECT },
+];
+
+const LEGEND_ROWS = [
+  ["✕", PAD.CROSS], ["○", PAD.CIRCLE], ["□", PAD.SQUARE], ["△", PAD.TRIANGLE],
+  ["L1", PAD.L1], ["R1", PAD.R1], ["L2", PAD.L2], ["R2", PAD.R2],
+  ["Start", PAD.START], ["Select", PAD.SELECT],
+  ["↑", PAD.UP], ["↓", PAD.DOWN], ["←", PAD.LEFT], ["→", PAD.RIGHT],
+];
+
+// Codici del gioco (versione PAL): si inseriscono nella schermata Selezione Epoca
+// tenendo premuti L2 + R1.
+const CHEAT_PREFIX = [PAD.CROSS, PAD.SQUARE, PAD.R2, PAD.L1, PAD.CIRCLE, PAD.CROSS];
+const CHEATS = [
+  { name: "Sblocca tutti i livelli", keys: [PAD.SQUARE, PAD.SQUARE, PAD.SQUARE] },
+  { name: "Tutte le abilità", keys: [PAD.SQUARE, PAD.CIRCLE, PAD.SQUARE] },
+  { name: "Energia piena", keys: [PAD.SQUARE, PAD.CIRCLE, PAD.CIRCLE] },
+  { name: "Carote al massimo", keys: [PAD.SQUARE, PAD.SQUARE, PAD.CIRCLE] },
+];
+
+function keyName(emu, value) {
+  if (value === undefined || value === "") return "";
+  const name = typeof value === "number" ? emu.keyMap[value] : String(value);
+  return (name || "").replace(" arrow", "").replace(/^./, c => c.toUpperCase());
+}
+
+function renderLegend(emu) {
+  const list = document.getElementById("legend-list");
+  list.textContent = "";
+  for (const [label, id] of LEGEND_ROWS) {
+    const ctrl = emu.controls && emu.controls[0] && emu.controls[0][id];
+    const key = ctrl ? keyName(emu, ctrl.value) : "";
+    if (!key) continue;
+    const row = document.createElement("div");
+    row.innerHTML = "<span></span><b></b>";
+    row.firstChild.textContent = label;
+    row.lastChild.textContent = key;
+    list.appendChild(row);
+  }
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function enterCheat(emu, cheat, btn) {
+  const gm = emu.gameManager;
+  btn.disabled = true;
+  try {
+    gm.simulateInput(0, PAD.L2, 1);
+    gm.simulateInput(0, PAD.R1, 1);
+    await sleep(300);
+    for (const k of [...CHEAT_PREFIX, ...cheat.keys]) {
+      gm.simulateInput(0, k, 1);
+      await sleep(120);
+      gm.simulateInput(0, k, 0);
+      await sleep(180);
+    }
+    await sleep(300);
+  } finally {
+    gm.simulateInput(0, PAD.L2, 0);
+    gm.simulateInput(0, PAD.R1, 0);
+    btn.disabled = false;
+  }
+  const toast = document.getElementById("cheat-toast");
+  toast.textContent = "Codice inserito: " + cheat.name;
+  toast.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { toast.hidden = true; }, 3000);
+}
+
+function setupOverlay(emu) {
+  const overlay = document.getElementById("overlay");
+  emu.elements.parent.appendChild(overlay);
+  overlay.hidden = false;
+
+  // Legenda tasti (solo con tastiera, nascosta sui dispositivi touch).
+  const legend = document.getElementById("legend");
+  let showLegend = !emu.hasTouchScreen;
+  try {
+    const saved = localStorage.getItem("bb-legend");
+    if (saved !== null) showLegend = saved === "1";
+  } catch (e) { /* storage non disponibile */ }
+  legend.hidden = !showLegend;
+  document.getElementById("legend-toggle").addEventListener("click", () => {
+    showLegend = !showLegend;
+    legend.hidden = !showLegend;
+    try { localStorage.setItem("bb-legend", showLegend ? "1" : "0"); } catch (e) { /* ignora */ }
+  });
+  renderLegend(emu);
+  // Aggiorna la legenda quando i tasti vengono cambiati dal menu Controlli.
+  const saveSettings = emu.saveSettings.bind(emu);
+  emu.saveSettings = (...args) => {
+    const r = saveSettings(...args);
+    renderLegend(emu);
+    return r;
+  };
+
+  // Pannello trucchi.
+  const panel = document.getElementById("cheats");
+  const list = document.getElementById("cheat-list");
+  for (const cheat of CHEATS) {
+    const btn = document.createElement("button");
+    btn.textContent = cheat.name;
+    btn.addEventListener("click", () => {
+      panel.hidden = true;
+      enterCheat(emu, cheat, btn);
+    });
+    list.appendChild(btn);
+  }
+  document.getElementById("cheats-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
+}
+
+// ---------------------------------------------------------------------------
 
 function startEmulator() {
   window.EJS_player = "#game";
@@ -187,6 +347,8 @@ function startEmulator() {
   window.EJS_language = "it-IT";
   window.EJS_startOnLoaded = true;
   window.EJS_color = "#ff8a1f";
+  window.EJS_VirtualGamepadSettings = TOUCH_GAMEPAD;
+  window.EJS_onGameStart = () => setupOverlay(window.EJS_emulator);
   window.EJS_ready = () => {
     const emu = window.EJS_emulator;
     emu.downloadRom = async () => {

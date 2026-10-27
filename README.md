@@ -24,6 +24,18 @@ Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](ht
 - **Desktop:** in alto a sinistra una legenda semitrasparente mostra i tasti assegnati; si aggiorna quando li cambi dal menu Controlli. Il pulsante *Comandi* la mostra o la nasconde.
 - **Trucchi:** il pulsante *Trucchi* inserisce in automatico i codici ufficiali del gioco (versione PAL). Vanno usati nella schermata Selezione Epoca (la macchina del tempo). *Sblocca tutti i livelli* rende visitabili tutte le epoche.
 
+## Versione per PC (Windows, senza installazione)
+
+La cartella `desktop/` crea un'app portatile con Electron: doppio clic sull'eseguibile e il gioco parte, senza internet e senza installare niente. L'emulatore e le librerie vengono inclusi nella cartella; i salvataggi finiscono in `salvataggi/` accanto all'eseguibile.
+
+```
+cd desktop
+npm install
+npm run build
+```
+
+Il risultato è in `desktop/out/Bugs Bunny Lost in Time-win32-x64/`.
+
 ## Note
 
 - Al primo avvio il gioco parte dopo pochi secondi; in basso a destra si vede quanta parte del disco è già caricata. Le visite successive usano la cache del browser.

@@ -4,12 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bugs Bunny Lost in Time</title>
+<script>
+  // ?autostart (app desktop): niente schermata iniziale, si parte subito col gioco.
+  if (new URLSearchParams(location.search).has("autostart")) document.documentElement.classList.add("autostart");
+</script>
 <style>
   :root { --bg: #0d0b1a; --fg: #f4f1ff; --muted: #a59fc4; --accent: #ff8a1f; --bar: #2a2545; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   #stage { width: 100vw; height: 100vh; height: 100dvh; display: none; }
   #game { width: 100%; height: 100%; }
+  .autostart #intro, .autostart #buffer { display: none !important; }
+  .autostart #stage { display: block; }
   #intro { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px 16px; text-align: center; }
   h1 { margin: 0; font-size: clamp(28px, 6vw, 48px); letter-spacing: .5px; }
   p { margin: 0; color: var(--muted); max-width: 520px; line-height: 1.5; }
@@ -22,7 +28,7 @@
   #overlay[hidden], #overlay [hidden] { display: none; }
   #overlay .tools { display: flex; gap: 6px; }
   #overlay .tools button { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.45); color: rgba(255,255,255,.75); border: 1px solid rgba(255,255,255,.2); }
-  #legend { pointer-events: none; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,.35); color: rgba(255,255,255,.8); }
+  #legend { pointer-events: none; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,.55); color: rgba(255,255,255,.85); }
   #legend-list { display: grid; grid-template-columns: repeat(2, auto auto); column-gap: 10px; row-gap: 2px; }
   #legend-list > div { display: contents; }
   #legend-list span { text-align: right; opacity: .7; }
@@ -64,6 +70,7 @@
 <script>
 const EJS_DATA = "https://cdn.emulatorjs.org/4.2.3/data/";
 const CACHE_NAME = "bugsbunny-blocks-v1";
+const USE_CACHE = true; // l'app desktop la disattiva: il disco e' gia' sul PC
 const GAME_FILE = "game.bin";
 
 const playBtn = document.getElementById("play");
@@ -336,6 +343,73 @@ function setupOverlay(emu) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory card: EmulatorJS a volte svuota il suo archivio dei salvataggi
+// all'avvio, quindi ne teniamo una copia nostra e la rimettiamo prima che
+// il gioco parta.
+// ---------------------------------------------------------------------------
+const SAVE_PATH = "/data/saves/PCSX-ReARMed/game.srm";
+
+function openSaveDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("bugsbunny-saves", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("files");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function readSaveBackup() {
+  try {
+    const db = await openSaveDb();
+    return await new Promise(resolve => {
+      const get = db.transaction("files").objectStore("files").get(SAVE_PATH);
+      get.onsuccess = () => resolve(get.result || null);
+      get.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeSaveBackup(data) {
+  const db = await openSaveDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").put(data, SAVE_PATH);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function restoreSave(FS) {
+  const data = await readSaveBackup();
+  if (!data) return;
+  let dir = "";
+  for (const part of SAVE_PATH.split("/").slice(1, -1)) {
+    dir += "/" + part;
+    if (!FS.analyzePath(dir).exists) FS.mkdir(dir);
+  }
+  FS.writeFile(SAVE_PATH, data);
+}
+
+let lastBackup = null;
+
+async function backupSave(emu) {
+  const gm = emu.gameManager;
+  if (!emu.started) return;
+  gm.saveSaveFiles();
+  if (!gm.FS.analyzePath(SAVE_PATH).exists) return;
+  const data = gm.FS.readFile(SAVE_PATH);
+  if (lastBackup && lastBackup.length === data.length && lastBackup.every((b, i) => b === data[i])) return;
+  try {
+    await writeSaveBackup(data);
+    lastBackup = data;
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 function startEmulator() {
   window.EJS_player = "#game";
@@ -348,10 +422,23 @@ function startEmulator() {
   window.EJS_startOnLoaded = true;
   window.EJS_color = "#ff8a1f";
   window.EJS_VirtualGamepadSettings = TOUCH_GAMEPAD;
-  window.EJS_onGameStart = () => setupOverlay(window.EJS_emulator);
+  window.EJS_onGameStart = () => {
+    const emu = window.EJS_emulator;
+    setupOverlay(emu);
+    // Scrive spesso la memory card nello storage, cosi' chiudendo non si perde niente.
+    window.bbSaveNow = () => backupSave(emu);
+    setInterval(window.bbSaveNow, 10000);
+    // In fase di cattura, cosi' parte prima di EmulatorJS che alla chiusura
+    // spegne l'emulatore e smonta la cartella dei salvataggi.
+    window.addEventListener("beforeunload", window.bbSaveNow, true);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") window.bbSaveNow();
+    });
+  };
   window.EJS_ready = () => {
     const emu = window.EJS_emulator;
     emu.downloadRom = async () => {
+      await restoreSave(emu.gameManager.FS);
       mountDisc(emu.gameManager.FS);
       emu.fileName = GAME_FILE;
     };
@@ -374,7 +461,7 @@ playBtn.addEventListener("click", async () => {
   statusEl.textContent = "Avvio…";
   try {
     disc.manifest = await (await fetch("game/manifest.json", { cache: "no-cache" })).json();
-    try { disc.cache = await caches.open(CACHE_NAME); } catch (e) { disc.cache = null; }
+    try { disc.cache = USE_CACHE ? await caches.open(CACHE_NAME) : null; } catch (e) { disc.cache = null; }
     // ?nopreload: niente download in background, solo blocchi a richiesta (per i test).
     if (new URLSearchParams(location.search).has("nopreload")) disc.cursor = disc.manifest.blocks;
     pumpDownloads();
@@ -385,6 +472,9 @@ playBtn.addEventListener("click", async () => {
     playBtn.disabled = false;
   }
 });
+
+// ?autostart: usato dall'app desktop per partire senza premere "Gioca".
+if (new URLSearchParams(location.search).has("autostart")) playBtn.click();
 </script>
 </body>
 </html>

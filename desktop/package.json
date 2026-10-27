@@ -1,0 +1,17 @@
+{
+  "name": "bugs-bunny-lost-in-time",
+  "productName": "Bugs Bunny Lost in Time",
+  "version": "1.0.0",
+  "description": "Bugs Bunny: Lost in Time (PlayStation) come app desktop portatile",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "prepare-site": "node prepare.js",
+    "start": "node prepare.js && electron .",
+    "build": "node prepare.js && node package-win.js"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.0.0"
+  }
+}

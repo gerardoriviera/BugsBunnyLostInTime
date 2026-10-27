@@ -14,7 +14,9 @@ packager({
   asar: false,
   overwrite: true,
   prune: true,
-  ignore: [/^\/out($|\/)/, /^\/\.vendor-cache($|\/)/, /^\/prepare\.js$/, /^\/package-win\.js$/],
+  icon: path.join(__dirname, "icon.ico"),
+  ignore: [/^\/out($|\/)/, /^\/\.vendor-cache($|\/)/, /^\/prepare\.js$/, /^\/package-win\.js$/,
+    /^\/make-icon\.js$/, /^\/icon-source\.png$/],
   win32metadata: {
     ProductName: "Bugs Bunny Lost in Time",
     FileDescription: "Bugs Bunny Lost in Time",

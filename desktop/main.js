@@ -59,6 +59,7 @@ function createWindow() {
     backgroundColor: "#0d0b1a",
     autoHideMenuBar: true,
     title: "Bugs Bunny Lost in Time",
+    icon: path.join(__dirname, "icon.ico"),
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   win.setMenu(null);

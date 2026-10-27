@@ -15,11 +15,10 @@
   p { margin: 0; color: var(--muted); max-width: 520px; line-height: 1.5; }
   button { font: inherit; font-size: 20px; font-weight: 600; padding: 14px 40px; border: 0; border-radius: 999px; background: var(--accent); color: #1a0f00; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
-  #progress { width: min(420px, 100%); height: 10px; border-radius: 5px; background: var(--bar); overflow: hidden; display: none; }
-  #progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   #status { min-height: 1.5em; }
   .keys { font-size: 14px; }
   .keys b { color: var(--fg); }
+  #buffer { position: fixed; right: 12px; bottom: 12px; z-index: 10; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: var(--muted); font-size: 12px; pointer-events: none; transition: opacity 1s; }
 </style>
 </head>
 <body>
@@ -27,84 +26,174 @@
   <h1>Bugs Bunny: Lost in Time</h1>
   <p>Versione europea per PlayStation, emulata nel browser.</p>
   <button id="play">Gioca</button>
-  <div id="progress"><div></div></div>
   <p id="status"></p>
-  <p class="keys">Al primo avvio vengono scaricati circa 280 MB, poi il gioco resta in cache.<br>
-    Comandi: <b>frecce</b> = movimento, <b>Invio</b> = Start; gli altri tasti sono nel menu <b>Controlli</b> dell’emulatore.<br>
+  <p class="keys">Comandi: <b>frecce</b> = movimento, <b>Invio</b> = Start; gli altri tasti sono nel menu <b>Controlli</b> dell’emulatore.<br>
     Funziona anche con un gamepad e, su smartphone, con i comandi touch.</p>
 </div>
 <div id="stage"><div id="game"></div></div>
+<div id="buffer" hidden></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako_inflate.min.js"></script>
 <script>
 const EJS_DATA = "https://cdn.emulatorjs.org/4.2.3/data/";
-const CACHE_NAME = "bugsbunny-game-v1";
+const CACHE_NAME = "bugsbunny-blocks-v1";
+const GAME_FILE = "game.bin";
 
 const playBtn = document.getElementById("play");
 const statusEl = document.getElementById("status");
-const progressEl = document.getElementById("progress");
-const barEl = progressEl.firstElementChild;
+const bufferEl = document.getElementById("buffer");
 
-function setProgress(done, total) {
-  const pct = total ? Math.floor(done / total * 100) : 0;
-  barEl.style.width = pct + "%";
-  statusEl.textContent = `Download del gioco: ${pct}% (${(done / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB)`;
+// ---------------------------------------------------------------------------
+// Disco in streaming: il CD e' diviso in blocchi da 512 KB compressi (site/game/b).
+// L'emulatore legge il file in modo sincrono, quindi un blocco che manca viene
+// scaricato subito con una richiesta sincrona; nel frattempo tutti gli altri
+// blocchi arrivano in background e restano nella cache del browser.
+// ---------------------------------------------------------------------------
+const disc = {
+  manifest: null,
+  compressed: new Map(),   // indice -> blocco gzip
+  recent: new Map(),       // piccola LRU di blocchi gia' decompressi
+  queue: [],               // blocchi da scaricare con priorita'
+  cursor: 0,               // prossimo blocco per il download in sequenza
+  inFlight: new Set(),
+  cache: null,
+  waits: [],               // [blocco, ms] per ogni attesa sincrona (diagnostica)
+};
+
+function blockUrl(i) {
+  return "game/b/" + String(i).padStart(4, "0");
 }
 
-async function openCache() {
-  try { return await caches.open(CACHE_NAME); } catch (e) { return null; }
+function fetchBlockSync(i) {
+  const xhr = new XMLHttpRequest();
+  xhr.open("GET", blockUrl(i), false);
+  xhr.overrideMimeType("text/plain; charset=x-user-defined");
+  xhr.send();
+  if (xhr.status !== 200) throw new Error(`Blocco ${i}: errore ${xhr.status}`);
+  const text = xhr.responseText;
+  const bytes = new Uint8Array(text.length);
+  for (let k = 0; k < text.length; k++) bytes[k] = text.charCodeAt(k) & 0xff;
+  return bytes;
 }
 
-// Scarica i pezzi compressi in sequenza (usando la cache se disponibile)
-// e li passa a un unico decompressore gzip.
-async function loadGame() {
-  const manifest = await (await fetch("game/manifest.json", { cache: "no-cache" })).json();
-  const cache = await openCache();
+function getBlock(i) {
+  let data = disc.recent.get(i);
+  if (data) {
+    disc.recent.delete(i);
+    disc.recent.set(i, data);
+    return data;
+  }
+  let gz = disc.compressed.get(i);
+  if (!gz) {
+    const t = performance.now();
+    gz = fetchBlockSync(i);
+    disc.compressed.set(i, gz);
+    disc.waits.push([i, Math.round(performance.now() - t)]);
+  }
+  data = pako.ungzip(gz);
+  disc.recent.set(i, data);
+  if (disc.recent.size > 32) disc.recent.delete(disc.recent.keys().next().value);
+  // Lettura anticipata: i dischi si leggono quasi sempre in sequenza.
+  for (let k = i + 1; k <= i + 8 && k < disc.manifest.blocks; k++) {
+    if (!disc.compressed.has(k)) disc.queue.push(k);
+  }
+  pumpDownloads();
+  return data;
+}
+
+function readDisc(buffer, offset, length, position) {
+  const size = disc.manifest.size;
+  const bs = disc.manifest.blockSize;
+  if (position >= size) return 0;
+  length = Math.min(length, size - position);
   let done = 0;
-
-  const compressed = new ReadableStream({
-    async start(controller) {
-      try {
-        for (const part of manifest.parts) {
-          const url = "game/" + part.name;
-          let res = cache ? await cache.match(url) : null;
-          if (!res) {
-            res = await fetch(url);
-            if (!res.ok) throw new Error(`Errore ${res.status} scaricando ${part.name}`);
-            if (cache) {
-              try { await cache.put(url, res.clone()); } catch (e) { /* quota piena: si continua senza cache */ }
-            }
-          }
-          const reader = res.body.getReader();
-          for (;;) {
-            const { value, done: end } = await reader.read();
-            if (end) break;
-            controller.enqueue(value);
-            done += value.length;
-            setProgress(done, manifest.compressedSize);
-          }
-        }
-        controller.close();
-      } catch (e) {
-        controller.error(e);
-      }
-    }
-  });
-
-  const blob = await new Response(compressed.pipeThrough(new DecompressionStream("gzip"))).blob();
-  if (blob.size !== manifest.originalSize) throw new Error("File del gioco incompleto, ricarica la pagina.");
-  return new File([blob], manifest.fileName);
+  while (done < length) {
+    const pos = position + done;
+    const block = getBlock(Math.floor(pos / bs));
+    const start = pos % bs;
+    const n = Math.min(length - done, block.length - start);
+    buffer.set(block.subarray(start, start + n), offset + done);
+    done += n;
+  }
+  return done;
 }
 
-function startEmulator(file) {
+function nextBlockToFetch() {
+  while (disc.queue.length) {
+    const i = disc.queue.shift();
+    if (!disc.compressed.has(i) && !disc.inFlight.has(i)) return i;
+  }
+  while (disc.cursor < disc.manifest.blocks) {
+    const i = disc.cursor++;
+    if (!disc.compressed.has(i) && !disc.inFlight.has(i)) return i;
+  }
+  return -1;
+}
+
+async function fetchBlock(i) {
+  const url = blockUrl(i);
+  let res = disc.cache ? await disc.cache.match(url) : null;
+  if (!res) {
+    res = await fetch(url);
+    if (!res.ok) throw new Error(`Blocco ${i}: errore ${res.status}`);
+    if (disc.cache) {
+      try { await disc.cache.put(url, res.clone()); } catch (e) { /* quota piena: si continua senza cache */ }
+    }
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+function pumpDownloads() {
+  while (disc.inFlight.size < 4) {
+    const i = nextBlockToFetch();
+    if (i < 0) break;
+    disc.inFlight.add(i);
+    fetchBlock(i)
+      .then(gz => { if (!disc.compressed.has(i)) disc.compressed.set(i, gz); })
+      .catch(e => { console.warn(e); setTimeout(() => { disc.queue.push(i); pumpDownloads(); }, 2000); })
+      .finally(() => { disc.inFlight.delete(i); updateBuffer(); pumpDownloads(); });
+  }
+}
+
+function updateBuffer() {
+  const pct = Math.floor(disc.compressed.size / disc.manifest.blocks * 100);
+  bufferEl.hidden = false;
+  bufferEl.textContent = `Disco caricato: ${pct}%`;
+  if (pct >= 100) setTimeout(() => { bufferEl.style.opacity = 0; }, 3000);
+}
+
+// Crea nel filesystem dell'emulatore un file che non contiene dati:
+// ogni lettura passa da readDisc().
+function mountDisc(FS) {
+  const path = "/" + GAME_FILE;
+  FS.writeFile(path, new Uint8Array(0));
+  const node = FS.lookupPath(path).node;
+  node.usedBytes = disc.manifest.size;
+  node.stream_ops = Object.assign({}, node.stream_ops, {
+    read: (stream, buffer, offset, length, position) => readDisc(buffer, offset, length, position),
+    write: () => { throw new FS.ErrnoError(30); },
+  });
+}
+
+// ---------------------------------------------------------------------------
+
+function startEmulator() {
   window.EJS_player = "#game";
   window.EJS_core = "psx";
   window.EJS_gameName = "Bugs Bunny - Lost in Time";
   window.EJS_gameID = 1;
-  window.EJS_gameUrl = file;
+  window.EJS_gameUrl = "game/" + GAME_FILE; // mai scaricato: il disco e' montato da mountDisc()
   window.EJS_pathtodata = EJS_DATA;
   window.EJS_language = "it-IT";
   window.EJS_startOnLoaded = true;
   window.EJS_color = "#ff8a1f";
+  window.EJS_ready = () => {
+    const emu = window.EJS_emulator;
+    emu.downloadRom = async () => {
+      mountDisc(emu.gameManager.FS);
+      emu.fileName = GAME_FILE;
+    };
+  };
 
   document.getElementById("intro").style.display = "none";
   document.getElementById("stage").style.display = "block";
@@ -115,17 +204,19 @@ function startEmulator(file) {
 }
 
 playBtn.addEventListener("click", async () => {
-  if (!("DecompressionStream" in window)) {
-    statusEl.textContent = "Browser non supportato: usa una versione recente di Chrome, Edge, Firefox o Safari.";
+  if (typeof pako === "undefined") {
+    statusEl.textContent = "Errore di rete: ricarica la pagina.";
     return;
   }
   playBtn.disabled = true;
-  progressEl.style.display = "block";
-  statusEl.textContent = "Preparazione…";
+  statusEl.textContent = "Avvio…";
   try {
-    const file = await loadGame();
-    statusEl.textContent = "Avvio dell'emulatore…";
-    startEmulator(file);
+    disc.manifest = await (await fetch("game/manifest.json", { cache: "no-cache" })).json();
+    try { disc.cache = await caches.open(CACHE_NAME); } catch (e) { disc.cache = null; }
+    // ?nopreload: niente download in background, solo blocchi a richiesta (per i test).
+    if (new URLSearchParams(location.search).has("nopreload")) disc.cursor = disc.manifest.blocks;
+    pumpDownloads();
+    startEmulator();
   } catch (e) {
     console.error(e);
     statusEl.textContent = "Errore: " + e.message;

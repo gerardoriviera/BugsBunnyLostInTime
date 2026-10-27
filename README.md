@@ -1,15 +1,15 @@
 # Bugs Bunny: Lost in Time — versione browser
 
-Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](https://emulatorjs.org) 4.2.3 (core PCSX-ReARMed, BIOS emulato HLE).
+Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](https://emulatorjs.org) 4.2.3 (core PCSX-ReARMed, BIOS emulato HLE). Il disco arriva in streaming: il gioco parte in pochi secondi e scarica solo i blocchi che servono, mentre il resto viene caricato in background.
 
 ## Struttura
 
 - `site/` — la cartella da pubblicare (è tutto il sito).
-  - `index.html` — pagina di gioco: scarica i pezzi, li decomprime nel browser e avvia l'emulatore.
-  - `game/game.part000…006` — immagine del CD compressa con gzip e divisa in pezzi da 45 MB (limite GitHub: 100 MB per file).
-  - `game/manifest.json` — elenco dei pezzi e dimensioni.
+  - `index.html` — pagina di gioco: monta nell'emulatore un disco virtuale che legge i blocchi a richiesta.
+  - `game/b/0000…1192` — immagine del CD divisa in blocchi da 512 KB, ognuno compresso con gzip.
+  - `game/manifest.json` — dimensioni del disco e numero di blocchi.
   - `_headers` — header di cache per Netlify.
-- `scripts/build-parts.js` — rigenera i pezzi da un file `.bin`: `node scripts/build-parts.js "percorso/del/gioco.bin"`
+- `scripts/build-blocks.js` — rigenera i blocchi da un file `.bin`: `node scripts/build-blocks.js "percorso/del/gioco.bin"`
 - `netlify.toml` — dice a Netlify di pubblicare `site/`.
 
 ## Pubblicare su Netlify
@@ -20,7 +20,8 @@ Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](ht
 
 ## Note
 
-- Al primo avvio vengono scaricati circa 280 MB; poi i pezzi restano nella cache del browser.
+- Al primo avvio il gioco parte dopo pochi secondi; in basso a destra si vede quanta parte del disco è già caricata. Le visite successive usano la cache del browser.
+- Per provare lo streaming puro (senza caricamento in background) apri la pagina con `?nopreload`.
 - I salvataggi (memory card e salvataggi rapidi) restano nel browser di chi gioca.
-- Serve un browser recente (Chrome, Edge, Firefox, Safari) con supporto a `DecompressionStream`.
+- Serve un browser recente (Chrome, Edge, Firefox, Safari).
 - Il gioco è protetto da copyright: tieni il repository privato.

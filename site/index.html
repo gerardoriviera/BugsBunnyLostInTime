@@ -410,10 +410,13 @@ function setupOverlay(emu) {
   const panel = document.getElementById("cheats");
   const touchOnly = emu.hasTouchScreen && !matchMedia("(pointer: fine)").matches;
   let shown = false;
+  // Anche il pulsante Trucchi della barra dell'emulatore compare solo con Tab.
+  const ejsCheat = emu.elements.bottomBar && emu.elements.bottomBar.cheat && emu.elements.bottomBar.cheat[0];
   const applyShown = () => {
     legend.hidden = !shown;
     tools.hidden = !shown && !touchOnly;
     if (!shown) panel.hidden = true;
+    if (ejsCheat) ejsCheat.style.display = shown ? "" : "none";
   };
   applyShown();
   window.addEventListener("keydown", e => {

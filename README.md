@@ -21,8 +21,9 @@ Il gioco PlayStation (versione europea) gira nel browser tramite [EmulatorJS](ht
 ## Comandi e trucchi
 
 - **Smartphone:** pad touch con croce direzionale, △ □ ○ ✕, L1/R1/L2/R2, Select e Start.
-- **Desktop:** in alto a sinistra una legenda semitrasparente mostra i tasti assegnati; si aggiorna quando li cambi dal menu Controlli. Il pulsante *Comandi* la mostra o la nasconde.
-- **Trucchi:** il pulsante *Trucchi* inserisce in automatico i codici ufficiali del gioco (versione PAL). Vanno usati nella schermata Selezione Epoca (la macchina del tempo). *Sblocca tutti i livelli* rende visitabili tutte le epoche.
+- **Controller Xbox (predefinito):** levetta sinistra o croce per muoversi, A salto, B accucciarsi, X calcio, Y guardarsi intorno, LB/RB/LT/RT = L1/R1/L2/R2, Menu = Start, View = Select.
+- **Desktop:** il tasto **Tab** mostra (e ripremendolo nasconde) la legenda dei tasti di tastiera e controller e il pulsante *Trucchi*. La legenda si aggiorna quando i tasti vengono cambiati dal menu Controlli. L2 da tastiera è su W.
+- **Trucchi:** il pulsante *Trucchi* (sempre visibile su smartphone) inserisce in automatico i codici ufficiali del gioco (versione PAL). Vanno usati nella schermata Selezione Epoca (la macchina del tempo). *Sblocca tutti i livelli* rende visitabili tutte le epoche.
 
 ## Versione per PC (Windows, senza installazione)
 
